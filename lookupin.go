@@ -10,7 +10,7 @@ type LookupInBuilder struct {
 	p *Pail
 }
 
-// TryExecute will repeatedly execute the LookupIn call until success, non-connection error is seen, or retries is
+// TryExecute will repeatedly execute the TryLookupIn call until success, non-connection error is seen, or retries is
 // breached
 func (lib *LookupInBuilder) TryExecute() (*gocb.DocumentFragment, error) {
 	var df *gocb.DocumentFragment

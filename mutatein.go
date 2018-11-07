@@ -10,7 +10,7 @@ type MutateInBuilder struct {
 	p *Pail
 }
 
-// TryExecute will attempt the MutateIn call repeatedly until success, non-connection error is seen, or retries is
+// TryExecute will attempt the TryMutateIn call repeatedly until success, non-connection error is seen, or retries is
 // breached
 func (mib *MutateInBuilder) TryExecute() (*gocb.DocumentFragment, error) {
 	var df *gocb.DocumentFragment

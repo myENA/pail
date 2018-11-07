@@ -63,26 +63,26 @@ func (p *Pail) TryTouch(key string, cas gocb.Cas, expiry uint32) (gocb.Cas, erro
 	return rcas, err
 }
 
-// MutateIn wraps bucket.MutateIn with our own MutateInBuilder
-func (p *Pail) MutateIn(key string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+// TryMutateIn wraps bucket.TryMutateIn with our own MutateInBuilder
+func (p *Pail) TryMutateIn(key string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
 	mib := p.Bucket.MutateIn(key, cas, expiry)
 	return &MutateInBuilder{MutateInBuilder: mib, p: p}
 }
 
-// MutateInEx wraps bucket.MutateInEx with our own MutateInBuilder
-func (p *Pail) MutateInEx(key string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+// TryMutateInEx wraps bucket.TryMutateInEx with our own MutateInBuilder
+func (p *Pail) TryMutateInEx(key string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
 	mib := p.Bucket.MutateInEx(key, flags, cas, expiry)
 	return &MutateInBuilder{MutateInBuilder: mib, p: p}
 }
 
-// LookupIn wraps bucket.LookupIn with our own LookupInBuilder
-func (p *Pail) LookupIn(key string) *LookupInBuilder {
+// TryLookupIn wraps bucket.TryLookupIn with our own LookupInBuilder
+func (p *Pail) TryLookupIn(key string) *LookupInBuilder {
 	lib := p.Bucket.LookupIn(key)
 	return &LookupInBuilder{LookupInBuilder: lib, p: p}
 }
 
-// LookupInEx wraps bucket.LookupInEx with our own LookupInBuilder
-func (p *Pail) LookupInEx(key string, flags gocb.SubdocDocFlag) *LookupInBuilder {
+// TryLookupInEx wraps bucket.TryLookupInEx with our own LookupInBuilder
+func (p *Pail) TryLookupInEx(key string, flags gocb.SubdocDocFlag) *LookupInBuilder {
 	lib := p.Bucket.LookupInEx(key, flags)
 	return &LookupInBuilder{LookupInBuilder: lib, p: p}
 }
@@ -163,9 +163,9 @@ func (p *Pail) TryViewQuery(vq *gocb.ViewQuery) (gocb.ViewResults, error) {
 	return vr, err
 }
 
-// N1qlQueryWithParameters will create and execute a new N1qlQuery type, setting the provided consistency and parameters
+// TryN1qlQueryWithParameters will create and execute a new N1qlQuery type, setting the provided consistency and parameters
 // for you
-func (p *Pail) N1qlQueryWithParameters(query string, consistency gocb.ConsistencyMode, params interface{}) (gocb.QueryResults, error) {
+func (p *Pail) TryN1qlQueryWithParameters(query string, consistency gocb.ConsistencyMode, params interface{}) (gocb.QueryResults, error) {
 	if params == nil {
 		params = []interface{}{}
 	}
@@ -173,18 +173,18 @@ func (p *Pail) N1qlQueryWithParameters(query string, consistency gocb.Consistenc
 	return p.TryExecuteN1qlQuery(nq, params)
 }
 
-// N1qlQueryNotBounded creates and executes a new N1ql query with parameters, setting the NotBounded consistency type
-func (p *Pail) N1qlQueryNotBounded(query string, params ...interface{}) (gocb.QueryResults, error) {
+// TryN1qlQueryNotBounded creates and executes a new N1ql query with parameters, setting the NotBounded consistency type
+func (p *Pail) TryN1qlQueryNotBounded(query string, params ...interface{}) (gocb.QueryResults, error) {
 	if len(params) == 0 {
-		return p.N1qlQueryWithParameters(query, gocb.NotBounded, nil)
+		return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, nil)
 	}
-	return p.N1qlQueryWithParameters(query, gocb.NotBounded, params)
+	return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, params)
 }
 
-// N1qlQueryRequestPlus creates and executes a new N1ql query with parameters, setting the RequestPlus consistency type
-func (p *Pail) N1qlQueryRequestPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
+// TryN1qlQueryRequestPlus creates and executes a new N1ql query with parameters, setting the RequestPlus consistency type
+func (p *Pail) TryN1qlQueryRequestPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
 	if len(params) == 0 {
-		return p.N1qlQueryWithParameters(query, gocb.RequestPlus, nil)
+		return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, nil)
 	}
-	return p.N1qlQueryWithParameters(query, gocb.RequestPlus, params)
+	return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params)
 }
