@@ -188,3 +188,11 @@ func (p *Pail) TryN1qlQueryRequestPlus(query string, params ...interface{}) (goc
 	}
 	return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params)
 }
+
+// TryN1qlQueryStatementPlus creates and executes a new N1ql query with parameters, setting the StatementPlus consistency type
+func (p *Pail) TryN1qlQueryStatementPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
+	if len(params) == 0 {
+		return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, nil)
+	}
+	return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, params)
+}
