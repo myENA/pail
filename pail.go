@@ -178,6 +178,9 @@ func (p *Pail) TryN1qlQueryNotBounded(query string, params ...interface{}) (gocb
 	if len(params) == 0 {
 		return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, nil)
 	}
+	if _, ok := params[0].(map[string]interface{}); ok {
+		return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, params[0])
+	}
 	return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, params)
 }
 
@@ -186,6 +189,9 @@ func (p *Pail) TryN1qlQueryRequestPlus(query string, params ...interface{}) (goc
 	if len(params) == 0 {
 		return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, nil)
 	}
+	if _, ok := params[0].(map[string]interface{}); ok {
+		return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params[0])
+	}
 	return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params)
 }
 
@@ -193,6 +199,9 @@ func (p *Pail) TryN1qlQueryRequestPlus(query string, params ...interface{}) (goc
 func (p *Pail) TryN1qlQueryStatementPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
 	if len(params) == 0 {
 		return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, nil)
+	}
+	if _, ok := params[0].(map[string]interface{}); ok {
+		return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, params[0])
 	}
 	return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, params)
 }
