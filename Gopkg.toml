@@ -1,8 +1,0 @@
-[prune]
-  go-tests = true
-  unused-packages = true
-  non-go = true
-
-[[constraint]]
-  name = "github.com/couchbase/gocb"
-  version = "1.5.0"
