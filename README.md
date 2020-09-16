@@ -19,17 +19,18 @@ package main
 import(
 	"fmt"
 	
-    "github.com/couchbase/gocb"
-    "github.com/myENA/pail"
+    "github.com/couchbase/gocb/v2"
+    "github.com/myENA/pail/v2"
 )
 
 func main() {
 	// create couchbase connection and bucket as you normally would
 	connStr := "couchbase://127.0.0.1"
-    cluster, err := gocb.Connect(connStr)
+    cluster, err := gocb.Connect(connStr, gocb.ClusterOptions{})
     if err != nil {
     	panic(err)
     }
+    cluster.
     bucket, err := cluster.OpenBucket("mybuck", "mypass")
     if err != nil {
     	panic(err)

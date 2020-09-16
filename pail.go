@@ -7,6 +7,14 @@ import (
 	cbsearch "github.com/couchbase/gocb/v2/search"
 )
 
+func Connect(connStr string, opts gocb.ClusterOptions, retries int, delay time.Duration) (*Cluster, error) {
+	cluster, err := gocb.Connect(connStr, opts)
+	if err != nil {
+		return nil, err
+	}
+	return NewCluster(cluster, retries, delay), nil
+}
+
 type Cluster struct {
 	*gocb.Cluster
 	retries uint32
