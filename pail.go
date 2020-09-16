@@ -1,16 +1,102 @@
 package pail
 
 import (
+	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
-	"github.com/couchbase/gocb"
+	"github.com/couchbase/gocb/v2"
 )
+
+type RetryFunc func(*gocb.Bucket) error
+
+// this is a list of errors deemed to probably be related to a connection issue.
+var cbConnectionErrors = map[error]struct{}{
+	gocb.ErrOverload: {},
+	gocb.ErrTimeout:  {},
+}
+
+// Given an error, determine if it's a connection related error and return
+// true if so.
+func isConnectErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	_, ok := cbConnectionErrors[err]
+	return ok
+}
+
+type ConnectionErrorRetryAction time.Duration
+
+func (a ConnectionErrorRetryAction) Duration() time.Duration { return time.Duration(a) }
+
+type ConnectionErrorRetryStrategy struct {
+	limit  uint32
+	action ConnectionErrorRetryAction
+}
+
+func NewConnectionErrorRetryStrategy(limit uint32, wait time.Duration) ConnectionErrorRetryStrategy {
+	s := ConnectionErrorRetryStrategy{
+		limit:  limit,
+		action: ConnectionErrorRetryAction(wait),
+	}
+	return s
+}
+
+type RetryContext interface {
+	gocb.RetryStrategy
+	Try(*gocb.Bucket) error
+	GetOptions() *gocb.GetOptions
+
+}
+
+type DefaultRetryContext struct {
+	tries  uint32
+	limit  uint32
+	action ConnectionErrorRetryAction
+	fn     RetryFunc
+}
+
+func (rc DefaultRetryContext) RetryAfter(_ gocb.RetryRequest, reason gocb.RetryReason) gocb.RetryAction {
+	if reason.AlwaysRetry() {
+		return rc.action
+	}
+	if t := atomic.AddUint32(&rc.tries, 1); t > rc.limit {
+		return ConnectionErrorRetryAction(0)
+	}
+	return rc.action
+}
+
+func (rc DefaultRetryContext) Try(b *gocb.Bucket) error {
+	var (
+		t   uint32
+		err error
+	)
+	for t = atomic.AddUint32(&rc.limit, 1); t <= rc.limit; {
+		if err = rc.fn(b); err == nil {
+			return nil
+		} else if isConnectErr(err) {
+			time.Sleep(time.Duration(rc.action))
+		} else {
+			return err
+		}
+	}
+	return fmt.Errorf("retries breached (last error: %v)", err)
+}
+
+func NewDefaultRetryContext(limit uint32, wait time.Duration) DefaultRetryContext {
+	rc := DefaultRetryContext{
+		limit:  limit,
+		action: ConnectionErrorRetryAction(wait),
+	}
+	return rc
+}
 
 // Pail is our gocb.Bucket wrapper, providing retry goodness.
 type Pail struct {
 	*gocb.Bucket
-	retries int
+	ctx RetryContext
 }
 
 // New will create a new Pail for you to use
@@ -18,19 +104,30 @@ type Pail struct {
 // err is here for forwards compatibility
 func New(bucket *gocb.Bucket, retries int) (*Pail, error) {
 	p := Pail{
-		Bucket:  bucket,
-		retries: retries,
+		Bucket: bucket,
+		ctx:    NewDefaultRetryContext(uint32(retries), 20*time.Millisecond),
+	}
+	return &p, nil
+}
+
+func NewWithRetryContext(bucket *gocb.Bucket, baseOpts *gocb. ctx RetryContext) (*Pail, error) {
+	if ctx == nil {
+		return nil, errors.New("ctx cannot be nil")
+	}
+	p := Pail{
+		Bucket: bucket,
+		ctx:    ctx,
 	}
 	return &p, nil
 }
 
 // Try will attempt to execute fn up to retries+1 times or until a
 // non-connection-related error is seen.
-func (p *Pail) Try(retries int, fn RetryFunc) error {
+func (p *Pail) Try(rc RetryContext) error {
 	var err error
 	for retries >= 0 {
 		retries--
-		err = fn(p.Bucket)
+		err = rc.Try(p.Bucket)
 		if isConnectErr(err) {
 			time.Sleep(20 * time.Millisecond)
 		} else if err != nil {
@@ -40,14 +137,14 @@ func (p *Pail) Try(retries int, fn RetryFunc) error {
 		}
 	}
 
-	return fmt.Errorf("retries breached (last error: %v", err)
+	return fmt.Errorf("retries breached (last error: %v)", err)
 }
 
 // TryGet wraps bucket.Get with a retry func
 func (p *Pail) TryGet(key string, valuePtr interface{}) (gocb.Cas, error) {
 	var cas gocb.Cas
 	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { cas, err = b.Get(key, valuePtr); return err }); tryErr != nil {
+	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { cas, err = b.DefaultCollection().Get(key, valuePtr); return err }); tryErr != nil {
 		return 0, tryErr
 	}
 	return cas, err
@@ -65,7 +162,7 @@ func (p *Pail) TryTouch(key string, cas gocb.Cas, expiry uint32) (gocb.Cas, erro
 
 // TryMutateIn wraps bucket.TryMutateIn with our own MutateInBuilder
 func (p *Pail) TryMutateIn(key string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.MutateIn(key, cas, expiry)
+	mib := p.Bucket.DefaultCollection().MutateIn(key, cas, expiry)
 	return &MutateInBuilder{MutateInBuilder: mib, p: p}
 }
 
