@@ -124,6 +124,10 @@ func (p *Pail) DefaultCollection() *Collection {
 	return p.Collection(defaultThingName)
 }
 
+func (p *Pail) ScopeCollection(scopeName, collectionName string) *Collection {
+	return p.Scope(scopeName).Collection(collectionName)
+}
+
 type Scope struct {
 	*gocb.Scope
 	commonRetryable
