@@ -41,12 +41,16 @@ func (c *Cluster) Bucket(bucketName string) *Pail {
 	return NewPail(c.Cluster.Bucket(bucketName), int(c.retries), c.delay)
 }
 
+func (c *Cluster) QueryIndexes() *QueryIndexManager {
+	return NewQueryIndexManager(c.Cluster.QueryIndexes(), int(c.retries), c.delay)
+}
+
 func (c *Cluster) QueryOptions(in *gocb.QueryOptions, fn ClusterRetryFunc) (ClusterRetryContext, *gocb.QueryOptions) {
 	out := new(gocb.QueryOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
@@ -56,7 +60,7 @@ func (c *Cluster) SearchOptions(in *gocb.SearchOptions, fn ClusterRetryFunc) (Cl
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
@@ -91,6 +95,170 @@ func (c *Cluster) SearchQuery(indexName string, query cbsearch.Query, opts *gocb
 	return res, err
 }
 
+type QueryIndexManager struct {
+	*gocb.QueryIndexManager
+	commonRetryable
+}
+
+func NewQueryIndexManager(queryIndexManager *gocb.QueryIndexManager, retries int, delay time.Duration) *QueryIndexManager {
+	qm := new(QueryIndexManager)
+	qm.QueryIndexManager = queryIndexManager
+	qm.retries = uint32(retries)
+	qm.delay = delay
+	return qm
+}
+
+func (qm *QueryIndexManager) Try(ctx QueryIndexManagerRetryContext) error {
+	return ctx.Try(qm.QueryIndexManager)
+}
+
+func (qm *QueryIndexManager) CreateQueryIndexOptions(in *gocb.CreateQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.CreateQueryIndexOptions) {
+	out := new(gocb.CreateQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) CreatePrimaryQueryIndexOptions(in *gocb.CreatePrimaryQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.CreatePrimaryQueryIndexOptions) {
+	out := new(gocb.CreatePrimaryQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) DropQueryIndexOptions(in *gocb.DropQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.DropQueryIndexOptions) {
+	out := new(gocb.DropQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) DropPrimaryQueryIndexOptions(in *gocb.DropPrimaryQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.DropPrimaryQueryIndexOptions) {
+	out := new(gocb.DropPrimaryQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) GetAllQueryIndexesOptions(in *gocb.GetAllQueryIndexesOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.GetAllQueryIndexesOptions) {
+	out := new(gocb.GetAllQueryIndexesOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) BuildDeferredQueryIndexOptions(in *gocb.BuildDeferredQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.BuildDeferredQueryIndexOptions) {
+	out := new(gocb.BuildDeferredQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) WatchQueryIndexOptions(in *gocb.WatchQueryIndexOptions, fn QueryIndexManagerRetryFunc) (QueryIndexManagerRetryContext, *gocb.WatchQueryIndexOptions) {
+	out := new(gocb.WatchQueryIndexOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewSimpleQueryIndexManagerRetryContext(qm.retries, qm.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (qm *QueryIndexManager) CreateIndex(bucketName, indexName string, fields []string, opts *gocb.CreateQueryIndexOptions) error {
+	var (
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.CreateQueryIndexOptions(opts, func(qm *gocb.QueryIndexManager) error { return qm.CreateIndex(bucketName, indexName, fields, opts) })
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return tryErr
+	}
+	return err
+}
+
+func (qm *QueryIndexManager) CreatePrimaryIndex(bucketName string, opts *gocb.CreatePrimaryQueryIndexOptions) error {
+	var (
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.CreatePrimaryQueryIndexOptions(opts, func(qm *gocb.QueryIndexManager) error { return qm.CreatePrimaryIndex(bucketName, opts) })
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return tryErr
+	}
+	return err
+}
+
+func (qm *QueryIndexManager) DropIndex(bucketName, indexName string, opts *gocb.DropQueryIndexOptions) error {
+	var (
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.DropQueryIndexOptions(opts, func(qm *gocb.QueryIndexManager) error { return qm.DropIndex(bucketName, indexName, opts) })
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return tryErr
+	}
+	return err
+}
+
+func (qm *QueryIndexManager) DropPrimaryIndex(bucketName string, opts *gocb.DropPrimaryQueryIndexOptions) error {
+	var (
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.DropPrimaryQueryIndexOptions(opts, func(qm *gocb.QueryIndexManager) error { return qm.DropPrimaryIndex(bucketName, opts) })
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return tryErr
+	}
+	return err
+}
+
+func (qm *QueryIndexManager) GetAllIndexes(bucketName string, opts *gocb.GetAllQueryIndexesOptions) ([]gocb.QueryIndex, error) {
+	var (
+		res []gocb.QueryIndex
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.GetAllQueryIndexesOptions(opts, func(qm *gocb.QueryIndexManager) error { res, err = qm.GetAllIndexes(bucketName, opts); return err })
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (qm *QueryIndexManager) BuildDeferredIndexes(bucketName string, opts *gocb.BuildDeferredQueryIndexOptions) ([]string, error) {
+	var (
+		res []string
+		ctx QueryIndexManagerRetryContext
+		err error
+	)
+	ctx, opts = qm.BuildDeferredQueryIndexOptions(opts, func(qm *gocb.QueryIndexManager) error {
+		res, err = qm.BuildDeferredIndexes(bucketName, opts)
+		return err
+	})
+	if tryErr := qm.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
 // Pail is our gocb.Bucket wrapper, providing retry goodness.
 type Pail struct {
 	*gocb.Bucket
@@ -108,7 +276,6 @@ func NewPail(bucket *gocb.Bucket, retries int, delay time.Duration) *Pail {
 func (p *Pail) Scope(scopeName string) *Scope {
 	scope := new(Scope)
 	scope.Scope = p.Bucket.Scope(scopeName)
-	scope.pail = p
 	return scope
 }
 
@@ -131,7 +298,6 @@ func (p *Pail) ScopeCollection(scopeName, collectionName string) *Collection {
 type Scope struct {
 	*gocb.Scope
 	commonRetryable
-	pail *Pail
 }
 
 func (s *Scope) Collection(collectionName string) *Collection {
@@ -397,10 +563,7 @@ func (c *Collection) TryAppend(id string, value []byte, opts *gocb.AppendOptions
 		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = c.AppendOptions(opts, func(c *gocb.Collection) error {
-		res, err = c.Binary().Append(id, value, opts)
-		return err
-	})
+	ctx, opts = c.AppendOptions(opts, func(c *gocb.Collection) error { res, err = c.Binary().Append(id, value, opts); return err })
 	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
@@ -413,10 +576,7 @@ func (c *Collection) TryPrepend(id string, value []byte, opts *gocb.PrependOptio
 		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = c.PrependOptions(opts, func(c *gocb.Collection) error {
-		res, err = c.Binary().Prepend(id, value, opts)
-		return err
-	})
+	ctx, opts = c.PrependOptions(opts, func(c *gocb.Collection) error { res, err = c.Binary().Prepend(id, value, opts); return err })
 	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
