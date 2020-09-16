@@ -18,6 +18,7 @@ package main
 
 import(
 	"fmt"
+    "time"
 	
     "github.com/couchbase/gocb/v2"
     "github.com/myENA/pail/v2"
@@ -26,21 +27,11 @@ import(
 func main() {
 	// create couchbase connection and bucket as you normally would
 	connStr := "couchbase://127.0.0.1"
-    cluster, err := gocb.Connect(connStr, gocb.ClusterOptions{})
+    cluster, err := pail.Connect(connStr, gocb.ClusterOptions{}, 5, 20 * time.Millisecond)
     if err != nil {
     	panic(err)
     }
-    cluster.
-    bucket, err := cluster.OpenBucket("mybuck", "mypass")
-    if err != nil {
-    	panic(err)
-    }
-    
-    // once created, make a new pail 
-    p, err := pail.New(bucket, 5)
-    if err != nil {
-    	panic(err)
-    }
+    p := cluster.Bucket("bucketname")
     
     // From here, the API is pretty simple.  Any call you wish to attempt retries on, execute the "TryX" version of the
     // standard api method
@@ -53,11 +44,11 @@ func main() {
     tPtr := new(pType)
     
     // TryGet wraps bucket.Get
-    cas, err := p.TryGet("mykey", tPtr)
+    res, err := p.TryGetModeled("mykey", tPtr, nil)
     if err != nil {
     	panic(err)
     }
-    fmt.Println(cas)
+    fmt.Println(res)
 }
 
 ```

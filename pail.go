@@ -238,7 +238,7 @@ func (p *Pail) TryGet(id string, opts *gocb.GetOptions) (*gocb.GetResult, error)
 	return res, err
 }
 
-func (p *Pail) TryGetModeled(id string, opts *gocb.GetOptions, ptr interface{}) (*gocb.GetResult, error) {
+func (p *Pail) TryGetModeled(id string, ptr interface{}, opts *gocb.GetOptions) (*gocb.GetResult, error) {
 	var (
 		res *gocb.GetResult
 		err error
