@@ -15,7 +15,7 @@ type LookupInBuilder struct {
 func (lib *LookupInBuilder) TryExecute() (*gocb.DocumentFragment, error) {
 	var df *gocb.DocumentFragment
 	var err error
-	tryErr := lib.p.Try(lib.p.retries, func(b *gocb.Bucket) error { df, err = lib.LookupInBuilder.Execute(); return err })
+	tryErr := lib.p.TryBucketOp(lib.p.retries, func(b *gocb.Bucket) error { df, err = lib.LookupInBuilder.Execute(); return err })
 	if tryErr != nil {
 		return nil, tryErr
 	}

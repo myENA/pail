@@ -1,7 +1,7 @@
 package pail
 
 import (
-	"github.com/couchbase/gocb"
+	"github.com/couchbase/gocb/v2"
 )
 
 // MutateInBuilder embeds the gocb.MutateInBuilder type, enabling retry functionality
@@ -15,7 +15,7 @@ type MutateInBuilder struct {
 func (mib *MutateInBuilder) TryExecute() (*gocb.DocumentFragment, error) {
 	var df *gocb.DocumentFragment
 	var err error
-	tryErr := mib.p.Try(mib.p.retries, func(b *gocb.Bucket) error { df, err = mib.MutateInBuilder.Execute(); return err })
+	tryErr := mib.p.TryBucketOp(mib.p.retries, func(b *gocb.Bucket) error { df, err = mib.MutateInBuilder.Execute(); return err })
 	if tryErr != nil {
 		return nil, tryErr
 	}

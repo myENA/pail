@@ -1,304 +1,344 @@
 package pail
 
 import (
-	"errors"
-	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/couchbase/gocb/v2"
+	cbsearch "github.com/couchbase/gocb/v2/search"
 )
 
-type RetryFunc func(*gocb.Bucket) error
-
-// this is a list of errors deemed to probably be related to a connection issue.
-var cbConnectionErrors = map[error]struct{}{
-	gocb.ErrOverload: {},
-	gocb.ErrTimeout:  {},
+type Cluster struct {
+	*gocb.Cluster
+	retries uint32
+	delay   time.Duration
 }
 
-// Given an error, determine if it's a connection related error and return
-// true if so.
-func isConnectErr(err error) bool {
-	if err == nil {
-		return false
+func NewCluster(cluster *gocb.Cluster, retries int, delay time.Duration) *Cluster {
+	c := new(Cluster)
+	c.Cluster = cluster
+	c.retries = uint32(retries)
+	c.delay = delay
+	return c
+}
+
+func (c *Cluster) Bucket(bucketName string) *Pail {
+	return NewPail(c.Cluster.Bucket(bucketName), int(c.retries), c.delay)
+}
+
+func (c *Cluster) QueryOptions(in *gocb.QueryOptions, fn ClusterRetryFunc) (ClusterRetryContext, *gocb.QueryOptions) {
+	out := new(gocb.QueryOptions)
+	if in != nil {
+		*out = *in
 	}
-	_, ok := cbConnectionErrors[err]
-	return ok
+	ctx := NewDefaultClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
 }
 
-type ConnectionErrorRetryAction time.Duration
-
-func (a ConnectionErrorRetryAction) Duration() time.Duration { return time.Duration(a) }
-
-type ConnectionErrorRetryStrategy struct {
-	limit  uint32
-	action ConnectionErrorRetryAction
-}
-
-func NewConnectionErrorRetryStrategy(limit uint32, wait time.Duration) ConnectionErrorRetryStrategy {
-	s := ConnectionErrorRetryStrategy{
-		limit:  limit,
-		action: ConnectionErrorRetryAction(wait),
+func (c *Cluster) SearchOptions(in *gocb.SearchOptions, fn ClusterRetryFunc) (ClusterRetryContext, *gocb.SearchOptions) {
+	out := new(gocb.SearchOptions)
+	if in != nil {
+		*out = *in
 	}
-	return s
+	ctx := NewDefaultClusterRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
 }
 
-type RetryContext interface {
-	gocb.RetryStrategy
-	Try(*gocb.Bucket) error
-	GetOptions() *gocb.GetOptions
-
+func (c *Cluster) Try(ctx ClusterRetryContext) error {
+	return ctx.Try(c.Cluster)
 }
 
-type DefaultRetryContext struct {
-	tries  uint32
-	limit  uint32
-	action ConnectionErrorRetryAction
-	fn     RetryFunc
-}
-
-func (rc DefaultRetryContext) RetryAfter(_ gocb.RetryRequest, reason gocb.RetryReason) gocb.RetryAction {
-	if reason.AlwaysRetry() {
-		return rc.action
-	}
-	if t := atomic.AddUint32(&rc.tries, 1); t > rc.limit {
-		return ConnectionErrorRetryAction(0)
-	}
-	return rc.action
-}
-
-func (rc DefaultRetryContext) Try(b *gocb.Bucket) error {
+func (c *Cluster) Query(statement string, opts *gocb.QueryOptions) (*gocb.QueryResult, error) {
 	var (
-		t   uint32
+		res *gocb.QueryResult
+		ctx ClusterRetryContext
 		err error
 	)
-	for t = atomic.AddUint32(&rc.limit, 1); t <= rc.limit; {
-		if err = rc.fn(b); err == nil {
-			return nil
-		} else if isConnectErr(err) {
-			time.Sleep(time.Duration(rc.action))
-		} else {
-			return err
-		}
+	ctx, opts = c.QueryOptions(opts, func(cluster *gocb.Cluster) error { res, err = cluster.Query(statement, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
+		return nil, tryErr
 	}
-	return fmt.Errorf("retries breached (last error: %v)", err)
+	return res, err
 }
 
-func NewDefaultRetryContext(limit uint32, wait time.Duration) DefaultRetryContext {
-	rc := DefaultRetryContext{
-		limit:  limit,
-		action: ConnectionErrorRetryAction(wait),
+func (c *Cluster) SearchQuery(indexName string, query cbsearch.Query, opts *gocb.SearchOptions) (*gocb.SearchResult, error) {
+	var (
+		res *gocb.SearchResult
+		ctx ClusterRetryContext
+		err error
+	)
+	ctx, opts = c.SearchOptions(opts, func(c *gocb.Cluster) error { res, err = c.SearchQuery(indexName, query, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
+		return nil, tryErr
 	}
-	return rc
+	return res, err
 }
 
 // Pail is our gocb.Bucket wrapper, providing retry goodness.
 type Pail struct {
 	*gocb.Bucket
-	ctx RetryContext
+	retries uint32
+	delay   time.Duration
 }
 
-// New will create a new Pail for you to use
-//
-// err is here for forwards compatibility
-func New(bucket *gocb.Bucket, retries int) (*Pail, error) {
-	p := Pail{
-		Bucket: bucket,
-		ctx:    NewDefaultRetryContext(uint32(retries), 20*time.Millisecond),
-	}
-	return &p, nil
+func NewPail(bucket *gocb.Bucket, retries int, delay time.Duration) *Pail {
+	p := new(Pail)
+	p.Bucket = bucket
+	p.retries = uint32(retries)
+	p.delay = delay
+	return p
 }
 
-func NewWithRetryContext(bucket *gocb.Bucket, baseOpts *gocb. ctx RetryContext) (*Pail, error) {
-	if ctx == nil {
-		return nil, errors.New("ctx cannot be nil")
-	}
-	p := Pail{
-		Bucket: bucket,
-		ctx:    ctx,
-	}
-	return &p, nil
-}
-
-// Try will attempt to execute fn up to retries+1 times or until a
+// Try will attempt to execute retryFunc up to retries+1 times or until a
 // non-connection-related error is seen.
-func (p *Pail) Try(rc RetryContext) error {
-	var err error
-	for retries >= 0 {
-		retries--
-		err = rc.Try(p.Bucket)
-		if isConnectErr(err) {
-			time.Sleep(20 * time.Millisecond)
-		} else if err != nil {
-			return err
-		} else {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("retries breached (last error: %v)", err)
+func (p *Pail) Try(ctx BucketRetryContext) error {
+	return ctx.Try(p.Bucket)
 }
 
-// TryGet wraps bucket.Get with a retry func
-func (p *Pail) TryGet(key string, valuePtr interface{}) (gocb.Cas, error) {
-	var cas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { cas, err = b.DefaultCollection().Get(key, valuePtr); return err }); tryErr != nil {
-		return 0, tryErr
+func (p *Pail) GetOptions(in *gocb.GetOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.GetOptions) {
+	out := new(gocb.GetOptions)
+	if in != nil {
+		*out = *in
 	}
-	return cas, err
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
 }
 
-// TryTouch wraps bucket.Touch with a retry func
-func (p *Pail) TryTouch(key string, cas gocb.Cas, expiry uint32) (gocb.Cas, error) {
-	var rcas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { rcas, err = b.Touch(key, cas, expiry); return err }); tryErr != nil {
-		return rcas, tryErr
+func (p *Pail) TouchOptions(in *gocb.TouchOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.TouchOptions) {
+	out := new(gocb.TouchOptions)
+	if in != nil {
+		*out = *in
 	}
-	return rcas, err
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
 }
 
-// TryMutateIn wraps bucket.TryMutateIn with our own MutateInBuilder
-func (p *Pail) TryMutateIn(key string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.DefaultCollection().MutateIn(key, cas, expiry)
+func (p *Pail) UpsertOptions(in *gocb.UpsertOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.UpsertOptions) {
+	out := new(gocb.UpsertOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) InsertOptions(in *gocb.InsertOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.InsertOptions) {
+	out := new(gocb.InsertOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) ReplaceOptions(in *gocb.ReplaceOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.ReplaceOptions) {
+	out := new(gocb.ReplaceOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) RemoveOptions(in *gocb.RemoveOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.RemoveOptions) {
+	out := new(gocb.RemoveOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) IncrementOptions(in *gocb.IncrementOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.IncrementOptions) {
+	out := new(gocb.IncrementOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) DecrementOptions(in *gocb.DecrementOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.DecrementOptions) {
+	out := new(gocb.DecrementOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) AppendOptions(in *gocb.AppendOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.AppendOptions) {
+	out := new(gocb.AppendOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) BulkOpOptions(in *gocb.BulkOpOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.BulkOpOptions) {
+	out := new(gocb.BulkOpOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
+
+func (p *Pail) TryDo(ops []gocb.BulkOp, opts *gocb.BulkOpOptions) error {
+	var (
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.BulkOpOptions(opts, func(b *gocb.Bucket) error { err = b.DefaultCollection().Do(ops, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return tryErr
+	}
+	return err
+}
+
+func (p *Pail) TryGet(id string, opts *gocb.GetOptions) (*gocb.GetResult, error) {
+	var (
+		res *gocb.GetResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.GetOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Get(id, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryGetModeled(id string, opts *gocb.GetOptions, ptr interface{}) (*gocb.GetResult, error) {
+	var (
+		res *gocb.GetResult
+		err error
+	)
+	if res, err = p.TryGet(id, opts); err != nil {
+		return nil, err
+	}
+	return res, res.Content(ptr)
+}
+
+func (p *Pail) TryTouch(id string, expiry time.Duration, opts *gocb.TouchOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.TouchOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Touch(id, expiry, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryUpsert(id string, value interface{}, opts *gocb.UpsertOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.UpsertOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Upsert(id, value, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryInsert(id string, value interface{}, opts *gocb.InsertOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.InsertOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Insert(id, value, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryReplace(id string, value interface{}, opts *gocb.ReplaceOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.ReplaceOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Replace(id, value, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryRemove(id string, opts *gocb.RemoveOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.RemoveOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Remove(id, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryMutateIn(id string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+	mib := p.Bucket.DefaultCollection().MutateIn(id, cas, expiry)
 	return &MutateInBuilder{MutateInBuilder: mib, p: p}
 }
 
-// TryMutateInEx wraps bucket.TryMutateInEx with our own MutateInBuilder
-func (p *Pail) TryMutateInEx(key string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.MutateInEx(key, flags, cas, expiry)
+func (p *Pail) TryMutateInEx(id string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+	mib := p.Bucket.MutateInEx(id, flags, cas, expiry)
 	return &MutateInBuilder{MutateInBuilder: mib, p: p}
 }
 
-// TryLookupIn wraps bucket.TryLookupIn with our own LookupInBuilder
-func (p *Pail) TryLookupIn(key string) *LookupInBuilder {
-	lib := p.Bucket.LookupIn(key)
+func (p *Pail) TryLookupIn(id string) *LookupInBuilder {
+	lib := p.Bucket.LookupIn(id)
 	return &LookupInBuilder{LookupInBuilder: lib, p: p}
 }
 
-// TryLookupInEx wraps bucket.TryLookupInEx with our own LookupInBuilder
-func (p *Pail) TryLookupInEx(key string, flags gocb.SubdocDocFlag) *LookupInBuilder {
-	lib := p.Bucket.LookupInEx(key, flags)
+func (p *Pail) TryLookupInEx(id string, flags gocb.SubdocDocFlag) *LookupInBuilder {
+	lib := p.Bucket.LookupInEx(id, flags)
 	return &LookupInBuilder{LookupInBuilder: lib, p: p}
 }
 
-// TryUpsert wraps bucket.Upsert with a retry func
-func (p *Pail) TryUpsert(key string, value interface{}, expiry uint32) (gocb.Cas, error) {
-	var cas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { cas, err = b.Upsert(key, value, expiry); return err }); tryErr != nil {
-		return 0, tryErr
-	}
-	return cas, err
-}
-
-// TryCounter wraps bucket.Counter with a retry func
-func (p *Pail) TryCounter(key string, delta, initial int64, expiry uint32) (uint64, gocb.Cas, error) {
-	var cas gocb.Cas
-	var count uint64
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { count, cas, err = b.Counter(key, delta, initial, expiry); return err }); tryErr != nil {
-		return 0, 0, tryErr
-	}
-	return count, cas, err
-}
-
-// TryInsert wraps bucket.Insert with a retry func
-func (p *Pail) TryInsert(key string, value interface{}, expiry uint32) (gocb.Cas, error) {
-	var cas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { cas, err = b.Insert(key, value, expiry); return err }); tryErr != nil {
-		return 0, tryErr
-	}
-	return cas, err
-}
-
-// TryReplace wraps bucket.replace with a retry func
-func (p *Pail) TryReplace(key string, value interface{}, cas gocb.Cas, expiry uint32) (gocb.Cas, error) {
-	var rcas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { rcas, err = b.Replace(key, value, cas, expiry); return err }); tryErr != nil {
-		return 0, tryErr
-	}
-	return rcas, err
-}
-
-// TryRemove wraps bucket.Remove with a retry func
-func (p *Pail) TryRemove(key string, cas gocb.Cas) (gocb.Cas, error) {
-	var rcas gocb.Cas
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { rcas, err = b.Remove(key, cas); return err }); tryErr != nil {
-		return 0, tryErr
-	}
-	return rcas, err
-}
-
-// TryExecuteN1qlQuery wraps bucket.ExecuteN1qlQuery with a retry func
-func (p *Pail) TryExecuteN1qlQuery(n1ql *gocb.N1qlQuery, params interface{}) (gocb.QueryResults, error) {
-	var err error
-	var qr gocb.QueryResults
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { qr, err = b.ExecuteN1qlQuery(n1ql, params); return err }); tryErr != nil {
+func (p *Pail) TryIncrement(id string, opts *gocb.IncrementOptions) (*gocb.CounterResult, error) {
+	var (
+		res *gocb.CounterResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.IncrementOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Binary().Increment(id, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
-	return qr, err
+	return res, err
 }
 
-// TryDo wraps bucket.Do with a retry func
-func (p *Pail) TryDo(ops []gocb.BulkOp) error {
-	return p.Try(p.retries, func(b *gocb.Bucket) error { return b.Do(ops) })
-}
-
-// TryViewQuery - ExecuteViewQuery Try() wrapper.
-func (p *Pail) TryViewQuery(vq *gocb.ViewQuery) (gocb.ViewResults, error) {
-	var vr gocb.ViewResults
-	var err error
-	if tryErr := p.Try(p.retries, func(b *gocb.Bucket) error { vr, err = b.ExecuteViewQuery(vq); return err }); tryErr != nil {
+func (p *Pail) TryDecrement(id string, opts *gocb.DecrementOptions) (*gocb.CounterResult, error) {
+	var (
+		res *gocb.CounterResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.DecrementOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Binary().Decrement(id, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
-	return vr, err
-}
-
-// TryN1qlQueryWithParameters will create and execute a new N1qlQuery type, setting the provided consistency and parameters
-// for you
-func (p *Pail) TryN1qlQueryWithParameters(query string, consistency gocb.ConsistencyMode, params interface{}) (gocb.QueryResults, error) {
-	if params == nil {
-		params = []interface{}{}
-	}
-	nq := gocb.NewN1qlQuery(query).Consistency(consistency)
-	return p.TryExecuteN1qlQuery(nq, params)
-}
-
-// TryN1qlQueryNotBounded creates and executes a new N1ql query with parameters, setting the NotBounded consistency type
-func (p *Pail) TryN1qlQueryNotBounded(query string, params ...interface{}) (gocb.QueryResults, error) {
-	if len(params) == 0 {
-		return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, nil)
-	}
-	if _, ok := params[0].(map[string]interface{}); ok {
-		return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, params[0])
-	}
-	return p.TryN1qlQueryWithParameters(query, gocb.NotBounded, params)
-}
-
-// TryN1qlQueryRequestPlus creates and executes a new N1ql query with parameters, setting the RequestPlus consistency type
-func (p *Pail) TryN1qlQueryRequestPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
-	if len(params) == 0 {
-		return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, nil)
-	}
-	if _, ok := params[0].(map[string]interface{}); ok {
-		return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params[0])
-	}
-	return p.TryN1qlQueryWithParameters(query, gocb.RequestPlus, params)
-}
-
-// TryN1qlQueryStatementPlus creates and executes a new N1ql query with parameters, setting the StatementPlus consistency type
-func (p *Pail) TryN1qlQueryStatementPlus(query string, params ...interface{}) (gocb.QueryResults, error) {
-	if len(params) == 0 {
-		return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, nil)
-	}
-	if _, ok := params[0].(map[string]interface{}); ok {
-		return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, params[0])
-	}
-	return p.TryN1qlQueryWithParameters(query, gocb.StatementPlus, params)
+	return res, err
 }
