@@ -1,7 +1,7 @@
 package pail
 
 import (
-	"github.com/couchbase/gocb"
+	"github.com/couchbase/gocb/v2"
 )
 
 // LookupInBuilder embeds the gocb.LookupInBuilder type, enabling retry functionality

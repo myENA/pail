@@ -297,26 +297,6 @@ func (p *Pail) TryRemove(id string, opts *gocb.RemoveOptions) (*gocb.MutationRes
 	return res, err
 }
 
-func (p *Pail) TryMutateIn(id string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.DefaultCollection().MutateIn(id, cas, expiry)
-	return &MutateInBuilder{MutateInBuilder: mib, p: p}
-}
-
-func (p *Pail) TryMutateInEx(id string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.MutateInEx(id, flags, cas, expiry)
-	return &MutateInBuilder{MutateInBuilder: mib, p: p}
-}
-
-func (p *Pail) TryLookupIn(id string) *LookupInBuilder {
-	lib := p.Bucket.LookupIn(id)
-	return &LookupInBuilder{LookupInBuilder: lib, p: p}
-}
-
-func (p *Pail) TryLookupInEx(id string, flags gocb.SubdocDocFlag) *LookupInBuilder {
-	lib := p.Bucket.LookupInEx(id, flags)
-	return &LookupInBuilder{LookupInBuilder: lib, p: p}
-}
-
 func (p *Pail) TryIncrement(id string, opts *gocb.IncrementOptions) (*gocb.CounterResult, error) {
 	var (
 		res *gocb.CounterResult
@@ -341,4 +321,24 @@ func (p *Pail) TryDecrement(id string, opts *gocb.DecrementOptions) (*gocb.Count
 		return nil, tryErr
 	}
 	return res, err
+}
+
+func (p *Pail) TryMutateIn(id string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+	mib := p.Bucket.DefaultCollection().MutateIn(id, cas, expiry)
+	return &MutateInBuilder{MutateInBuilder: mib, p: p}
+}
+
+func (p *Pail) TryMutateInEx(id string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
+	mib := p.Bucket.MutateInEx(id, flags, cas, expiry)
+	return &MutateInBuilder{MutateInBuilder: mib, p: p}
+}
+
+func (p *Pail) TryLookupIn(id string) *LookupInBuilder {
+	lib := p.Bucket.LookupIn(id)
+	return &LookupInBuilder{LookupInBuilder: lib, p: p}
+}
+
+func (p *Pail) TryLookupInEx(id string, flags gocb.SubdocDocFlag) *LookupInBuilder {
+	lib := p.Bucket.LookupInEx(id, flags)
+	return &LookupInBuilder{LookupInBuilder: lib, p: p}
 }
