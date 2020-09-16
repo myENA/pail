@@ -1,7 +1,7 @@
 # pail
 Lightweight extension to couchbase/gocb bucket that provides CRUD and N1QL retry logic
 
-[![](https://img.shields.io/badge/godoc-reference-5272B4.svg?style=flat-square)](https://godoc.org/github.com/myENA/pail)
+[![](https://img.shields.io/badge/pkg.go.dev-reference-5272B4.svg?style=flat-square)](https://pkg.go.dev/github.com/myENA/pail)
 
 ## Purpose
 In our testing with Couchbase, we noticed we sometimes see errors that stem from either an internal lock within the
@@ -44,11 +44,10 @@ func main() {
     tPtr := new(pType)
     
     // TryGet wraps bucket.Get
-    res, err := p.TryGetModeled("mykey", tPtr, nil)
+    res, err := p.DefaultCollection().TryGetContent("mykey", tPtr, nil)
     if err != nil {
     	panic(err)
     }
     fmt.Println(res)
 }
-
 ```

@@ -7,6 +7,15 @@ import (
 	cbsearch "github.com/couchbase/gocb/v2/search"
 )
 
+const (
+	defaultThingName = "_default"
+)
+
+type commonRetryable struct {
+	retries uint32
+	delay   time.Duration
+}
+
 func Connect(connStr string, opts gocb.ClusterOptions, retries int, delay time.Duration) (*Cluster, error) {
 	cluster, err := gocb.Connect(connStr, opts)
 	if err != nil {
@@ -17,8 +26,7 @@ func Connect(connStr string, opts gocb.ClusterOptions, retries int, delay time.D
 
 type Cluster struct {
 	*gocb.Cluster
-	retries uint32
-	delay   time.Duration
+	commonRetryable
 }
 
 func NewCluster(cluster *gocb.Cluster, retries int, delay time.Duration) *Cluster {
@@ -86,8 +94,7 @@ func (c *Cluster) SearchQuery(indexName string, query cbsearch.Query, opts *gocb
 // Pail is our gocb.Bucket wrapper, providing retry goodness.
 type Pail struct {
 	*gocb.Bucket
-	retries uint32
-	delay   time.Duration
+	commonRetryable
 }
 
 func NewPail(bucket *gocb.Bucket, retries int, delay time.Duration) *Pail {
@@ -98,275 +105,315 @@ func NewPail(bucket *gocb.Bucket, retries int, delay time.Duration) *Pail {
 	return p
 }
 
-// Try will attempt to execute retryFunc up to retries+1 times or until a
-// non-connection-related error is seen.
-func (p *Pail) Try(ctx BucketRetryContext) error {
-	return ctx.Try(p.Bucket)
+func (p *Pail) Scope(scopeName string) *Scope {
+	scope := new(Scope)
+	scope.Scope = p.Bucket.Scope(scopeName)
+	scope.pail = p
+	return scope
 }
 
-func (p *Pail) GetOptions(in *gocb.GetOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.GetOptions) {
+func (p *Pail) DefaultScope() *Scope {
+	return p.Scope(defaultThingName)
+}
+
+func (p *Pail) Collection(collectionName string) *Collection {
+	return p.DefaultScope().Collection(collectionName)
+}
+
+func (p *Pail) DefaultCollection() *Collection {
+	return p.Collection(defaultThingName)
+}
+
+type Scope struct {
+	*gocb.Scope
+	commonRetryable
+	pail *Pail
+}
+
+func (s *Scope) Collection(collectionName string) *Collection {
+	c := new(Collection)
+	c.Collection = s.Scope.Collection(collectionName)
+	return c
+}
+
+func (s *Scope) DefaultCollection() *Collection {
+	return s.Collection(defaultThingName)
+}
+
+type Collection struct {
+	*gocb.Collection
+	commonRetryable
+}
+
+// Try will attempt to execute retryFunc up to retries+1 times or until a
+// non-connection-related error is seen.
+func (c *Collection) Try(ctx CollectionRetryContext) error {
+	return ctx.Try(c.Collection)
+}
+
+func (c *Collection) GetOptions(in *gocb.GetOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.GetOptions) {
 	out := new(gocb.GetOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) TouchOptions(in *gocb.TouchOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.TouchOptions) {
+func (c *Collection) TouchOptions(in *gocb.TouchOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.TouchOptions) {
 	out := new(gocb.TouchOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) UpsertOptions(in *gocb.UpsertOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.UpsertOptions) {
+func (c *Collection) UpsertOptions(in *gocb.UpsertOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.UpsertOptions) {
 	out := new(gocb.UpsertOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) InsertOptions(in *gocb.InsertOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.InsertOptions) {
+func (c *Collection) InsertOptions(in *gocb.InsertOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.InsertOptions) {
 	out := new(gocb.InsertOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) ReplaceOptions(in *gocb.ReplaceOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.ReplaceOptions) {
+func (c *Collection) ReplaceOptions(in *gocb.ReplaceOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.ReplaceOptions) {
 	out := new(gocb.ReplaceOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) RemoveOptions(in *gocb.RemoveOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.RemoveOptions) {
+func (c *Collection) RemoveOptions(in *gocb.RemoveOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.RemoveOptions) {
 	out := new(gocb.RemoveOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) IncrementOptions(in *gocb.IncrementOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.IncrementOptions) {
+func (c *Collection) IncrementOptions(in *gocb.IncrementOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.IncrementOptions) {
 	out := new(gocb.IncrementOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) DecrementOptions(in *gocb.DecrementOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.DecrementOptions) {
+func (c *Collection) DecrementOptions(in *gocb.DecrementOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.DecrementOptions) {
 	out := new(gocb.DecrementOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) AppendOptions(in *gocb.AppendOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.AppendOptions) {
+func (c *Collection) AppendOptions(in *gocb.AppendOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.AppendOptions) {
 	out := new(gocb.AppendOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
-func (p *Pail) PrependOptions(in *gocb.PrependOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.PrependOptions) {
+func (c *Collection) PrependOptions(in *gocb.PrependOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.PrependOptions) {
 	out := new(gocb.PrependOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) BulkOpOptions(in *gocb.BulkOpOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.BulkOpOptions) {
+func (c *Collection) BulkOpOptions(in *gocb.BulkOpOptions, fn CollectionRetryFunc) (CollectionRetryContext, *gocb.BulkOpOptions) {
 	out := new(gocb.BulkOpOptions)
 	if in != nil {
 		*out = *in
 	}
-	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	ctx := NewSimpleCollectionRetryContext(c.retries, c.delay, out.RetryStrategy, fn)
 	out.RetryStrategy = ctx
 	return ctx, out
 }
 
-func (p *Pail) TryDo(ops []gocb.BulkOp, opts *gocb.BulkOpOptions) error {
+func (c *Collection) TryDo(ops []gocb.BulkOp, opts *gocb.BulkOpOptions) error {
 	var (
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.BulkOpOptions(opts, func(b *gocb.Bucket) error { err = b.DefaultCollection().Do(ops, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.BulkOpOptions(opts, func(c *gocb.Collection) error { err = c.Do(ops, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return tryErr
 	}
 	return err
 }
 
-func (p *Pail) TryGet(id string, opts *gocb.GetOptions) (*gocb.GetResult, error) {
+func (c *Collection) TryGet(id string, opts *gocb.GetOptions) (*gocb.GetResult, error) {
 	var (
 		res *gocb.GetResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.GetOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Get(id, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.GetOptions(opts, func(c *gocb.Collection) error { res, err = c.Get(id, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryGetModeled(id string, ptr interface{}, opts *gocb.GetOptions) (*gocb.GetResult, error) {
+func (c *Collection) TryGetContent(id string, ptr interface{}, opts *gocb.GetOptions) (*gocb.GetResult, error) {
 	var (
 		res *gocb.GetResult
 		err error
 	)
-	if res, err = p.TryGet(id, opts); err != nil {
+	if res, err = c.TryGet(id, opts); err != nil {
 		return nil, err
 	}
 	return res, res.Content(ptr)
 }
 
-func (p *Pail) TryTouch(id string, expiry time.Duration, opts *gocb.TouchOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryTouch(id string, expiry time.Duration, opts *gocb.TouchOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.TouchOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Touch(id, expiry, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.TouchOptions(opts, func(c *gocb.Collection) error { res, err = c.Touch(id, expiry, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryUpsert(id string, value interface{}, opts *gocb.UpsertOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryUpsert(id string, value interface{}, opts *gocb.UpsertOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.UpsertOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Upsert(id, value, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.UpsertOptions(opts, func(c *gocb.Collection) error { res, err = c.Upsert(id, value, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryInsert(id string, value interface{}, opts *gocb.InsertOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryInsert(id string, value interface{}, opts *gocb.InsertOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.InsertOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Insert(id, value, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.InsertOptions(opts, func(c *gocb.Collection) error { res, err = c.Insert(id, value, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryReplace(id string, value interface{}, opts *gocb.ReplaceOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryReplace(id string, value interface{}, opts *gocb.ReplaceOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.ReplaceOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Replace(id, value, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.ReplaceOptions(opts, func(c *gocb.Collection) error { res, err = c.Replace(id, value, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryRemove(id string, opts *gocb.RemoveOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryRemove(id string, opts *gocb.RemoveOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.RemoveOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Remove(id, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.RemoveOptions(opts, func(c *gocb.Collection) error { res, err = c.Remove(id, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryIncrement(id string, opts *gocb.IncrementOptions) (*gocb.CounterResult, error) {
+func (c *Collection) TryIncrement(id string, opts *gocb.IncrementOptions) (*gocb.CounterResult, error) {
 	var (
 		res *gocb.CounterResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.IncrementOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Binary().Increment(id, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.IncrementOptions(opts, func(c *gocb.Collection) error { res, err = c.Binary().Increment(id, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryDecrement(id string, opts *gocb.DecrementOptions) (*gocb.CounterResult, error) {
+func (c *Collection) TryDecrement(id string, opts *gocb.DecrementOptions) (*gocb.CounterResult, error) {
 	var (
 		res *gocb.CounterResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.DecrementOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Binary().Decrement(id, opts); return err })
-	if tryErr := p.Try(ctx); tryErr != nil {
+	ctx, opts = c.DecrementOptions(opts, func(c *gocb.Collection) error { res, err = c.Binary().Decrement(id, opts); return err })
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryAppend(id string, value []byte, opts *gocb.AppendOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryAppend(id string, value []byte, opts *gocb.AppendOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.AppendOptions(opts, func(b *gocb.Bucket) error {
-		res, err = b.DefaultCollection().Binary().Append(id, value, opts)
+	ctx, opts = c.AppendOptions(opts, func(c *gocb.Collection) error {
+		res, err = c.Binary().Append(id, value, opts)
 		return err
 	})
-	if tryErr := p.Try(ctx); tryErr != nil {
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err
 }
 
-func (p *Pail) TryPrepend(id string, value []byte, opts *gocb.PrependOptions) (*gocb.MutationResult, error) {
+func (c *Collection) TryPrepend(id string, value []byte, opts *gocb.PrependOptions) (*gocb.MutationResult, error) {
 	var (
 		res *gocb.MutationResult
-		ctx BucketRetryContext
+		ctx CollectionRetryContext
 		err error
 	)
-	ctx, opts = p.PrependOptions(opts, func(b *gocb.Bucket) error {
-		res, err = b.DefaultCollection().Binary().Prepend(id, value, opts)
+	ctx, opts = c.PrependOptions(opts, func(c *gocb.Collection) error {
+		res, err = c.Binary().Prepend(id, value, opts)
 		return err
 	})
-	if tryErr := p.Try(ctx); tryErr != nil {
+	if tryErr := c.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
 	return res, err

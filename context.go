@@ -10,8 +10,8 @@ import (
 )
 
 type (
-	BucketRetryFunc  func(*gocb.Bucket) error
-	ClusterRetryFunc func(*gocb.Cluster) error
+	CollectionRetryFunc func(*gocb.Collection) error
+	ClusterRetryFunc    func(*gocb.Cluster) error
 )
 
 // this is a list of errors deemed to probably be related to a connection issue.
@@ -75,25 +75,25 @@ func (bc baseRetryContext) RetryAfter(req gocb.RetryRequest, reason gocb.RetryRe
 	return bc.action
 }
 
-type BucketRetryContext interface {
+type CollectionRetryContext interface {
 	gocb.RetryStrategy
-	Try(*gocb.Bucket) error
+	Try(*gocb.Collection) error
 }
 
-type DefaultBucketRetryContext struct {
+type SimpleCollectionRetryContext struct {
 	baseRetryContext
-	retryFunc BucketRetryFunc
+	retryFunc CollectionRetryFunc
 }
 
-func NewDefaultBucketRetryContext(retries uint32, delay time.Duration, baseStrategy gocb.RetryStrategy, fn BucketRetryFunc) DefaultBucketRetryContext {
-	rc := DefaultBucketRetryContext{
+func NewSimpleCollectionRetryContext(retries uint32, delay time.Duration, baseStrategy gocb.RetryStrategy, fn CollectionRetryFunc) SimpleCollectionRetryContext {
+	rc := SimpleCollectionRetryContext{
 		baseRetryContext: newBaseRetryContext(retries, delay, baseStrategy),
 		retryFunc:        fn,
 	}
 	return rc
 }
 
-func (rc DefaultBucketRetryContext) Try(b *gocb.Bucket) error {
+func (rc SimpleCollectionRetryContext) Try(b *gocb.Collection) error {
 	var (
 		t   uint32
 		err error
