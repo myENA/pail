@@ -363,23 +363,3 @@ func (p *Pail) TryPrepend(id string, value []byte, opts *gocb.PrependOptions) (*
 	}
 	return res, err
 }
-
-func (p *Pail) TryMutateIn(id string, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.DefaultCollection().MutateIn(id, cas, expiry)
-	return &MutateInBuilder{MutateInBuilder: mib, p: p}
-}
-
-func (p *Pail) TryMutateInEx(id string, flags gocb.SubdocDocFlag, cas gocb.Cas, expiry uint32) *MutateInBuilder {
-	mib := p.Bucket.MutateInEx(id, flags, cas, expiry)
-	return &MutateInBuilder{MutateInBuilder: mib, p: p}
-}
-
-func (p *Pail) TryLookupIn(id string) *LookupInBuilder {
-	lib := p.Bucket.LookupIn(id)
-	return &LookupInBuilder{LookupInBuilder: lib, p: p}
-}
-
-func (p *Pail) TryLookupInEx(id string, flags gocb.SubdocDocFlag) *LookupInBuilder {
-	lib := p.Bucket.LookupInEx(id, flags)
-	return &LookupInBuilder{LookupInBuilder: lib, p: p}
-}
