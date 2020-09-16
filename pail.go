@@ -185,6 +185,15 @@ func (p *Pail) AppendOptions(in *gocb.AppendOptions, fn BucketRetryFunc) (Bucket
 	out.RetryStrategy = ctx
 	return ctx, out
 }
+func (p *Pail) PrependOptions(in *gocb.PrependOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.PrependOptions) {
+	out := new(gocb.PrependOptions)
+	if in != nil {
+		*out = *in
+	}
+	ctx := NewDefaultBucketRetryContext(p.retries, p.delay, out.RetryStrategy, fn)
+	out.RetryStrategy = ctx
+	return ctx, out
+}
 
 func (p *Pail) BulkOpOptions(in *gocb.BulkOpOptions, fn BucketRetryFunc) (BucketRetryContext, *gocb.BulkOpOptions) {
 	out := new(gocb.BulkOpOptions)
@@ -317,6 +326,38 @@ func (p *Pail) TryDecrement(id string, opts *gocb.DecrementOptions) (*gocb.Count
 		err error
 	)
 	ctx, opts = p.DecrementOptions(opts, func(b *gocb.Bucket) error { res, err = b.DefaultCollection().Binary().Decrement(id, opts); return err })
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryAppend(id string, value []byte, opts *gocb.AppendOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.AppendOptions(opts, func(b *gocb.Bucket) error {
+		res, err = b.DefaultCollection().Binary().Append(id, value, opts)
+		return err
+	})
+	if tryErr := p.Try(ctx); tryErr != nil {
+		return nil, tryErr
+	}
+	return res, err
+}
+
+func (p *Pail) TryPrepend(id string, value []byte, opts *gocb.PrependOptions) (*gocb.MutationResult, error) {
+	var (
+		res *gocb.MutationResult
+		ctx BucketRetryContext
+		err error
+	)
+	ctx, opts = p.PrependOptions(opts, func(b *gocb.Bucket) error {
+		res, err = b.DefaultCollection().Binary().Prepend(id, value, opts)
+		return err
+	})
 	if tryErr := p.Try(ctx); tryErr != nil {
 		return nil, tryErr
 	}
