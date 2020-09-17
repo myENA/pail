@@ -41,7 +41,7 @@ func (c *Cluster) Bucket(bucketName string) *Pail {
 	return NewPail(c.Cluster.Bucket(bucketName), int(c.retries), c.delay)
 }
 
-func (c *Cluster) QueryIndexes() *QueryIndexManager {
+func (c *Cluster) TryQueryIndexes() *QueryIndexManager {
 	return NewQueryIndexManager(c.Cluster.QueryIndexes(), int(c.retries), c.delay)
 }
 
@@ -69,7 +69,7 @@ func (c *Cluster) Try(ctx ClusterRetryContext) error {
 	return ctx.Try(c.Cluster)
 }
 
-func (c *Cluster) Query(statement string, opts *gocb.QueryOptions) (*gocb.QueryResult, error) {
+func (c *Cluster) TryQuery(statement string, opts *gocb.QueryOptions) (*gocb.QueryResult, error) {
 	var (
 		res *gocb.QueryResult
 		ctx ClusterRetryContext
@@ -82,7 +82,7 @@ func (c *Cluster) Query(statement string, opts *gocb.QueryOptions) (*gocb.QueryR
 	return res, err
 }
 
-func (c *Cluster) SearchQuery(indexName string, query cbsearch.Query, opts *gocb.SearchOptions) (*gocb.SearchResult, error) {
+func (c *Cluster) TrySearchQuery(indexName string, query cbsearch.Query, opts *gocb.SearchOptions) (*gocb.SearchResult, error) {
 	var (
 		res *gocb.SearchResult
 		ctx ClusterRetryContext
@@ -182,7 +182,7 @@ func (qm *QueryIndexManager) WatchQueryIndexOptions(in *gocb.WatchQueryIndexOpti
 	return ctx, out
 }
 
-func (qm *QueryIndexManager) CreateIndex(bucketName, indexName string, fields []string, opts *gocb.CreateQueryIndexOptions) error {
+func (qm *QueryIndexManager) TryCreateIndex(bucketName, indexName string, fields []string, opts *gocb.CreateQueryIndexOptions) error {
 	var (
 		ctx QueryIndexManagerRetryContext
 		err error
@@ -194,7 +194,7 @@ func (qm *QueryIndexManager) CreateIndex(bucketName, indexName string, fields []
 	return err
 }
 
-func (qm *QueryIndexManager) CreatePrimaryIndex(bucketName string, opts *gocb.CreatePrimaryQueryIndexOptions) error {
+func (qm *QueryIndexManager) TryCreatePrimaryIndex(bucketName string, opts *gocb.CreatePrimaryQueryIndexOptions) error {
 	var (
 		ctx QueryIndexManagerRetryContext
 		err error
@@ -206,7 +206,7 @@ func (qm *QueryIndexManager) CreatePrimaryIndex(bucketName string, opts *gocb.Cr
 	return err
 }
 
-func (qm *QueryIndexManager) DropIndex(bucketName, indexName string, opts *gocb.DropQueryIndexOptions) error {
+func (qm *QueryIndexManager) TryDropIndex(bucketName, indexName string, opts *gocb.DropQueryIndexOptions) error {
 	var (
 		ctx QueryIndexManagerRetryContext
 		err error
@@ -218,7 +218,7 @@ func (qm *QueryIndexManager) DropIndex(bucketName, indexName string, opts *gocb.
 	return err
 }
 
-func (qm *QueryIndexManager) DropPrimaryIndex(bucketName string, opts *gocb.DropPrimaryQueryIndexOptions) error {
+func (qm *QueryIndexManager) TryDropPrimaryIndex(bucketName string, opts *gocb.DropPrimaryQueryIndexOptions) error {
 	var (
 		ctx QueryIndexManagerRetryContext
 		err error
@@ -230,7 +230,7 @@ func (qm *QueryIndexManager) DropPrimaryIndex(bucketName string, opts *gocb.Drop
 	return err
 }
 
-func (qm *QueryIndexManager) GetAllIndexes(bucketName string, opts *gocb.GetAllQueryIndexesOptions) ([]gocb.QueryIndex, error) {
+func (qm *QueryIndexManager) TryGetAllIndexes(bucketName string, opts *gocb.GetAllQueryIndexesOptions) ([]gocb.QueryIndex, error) {
 	var (
 		res []gocb.QueryIndex
 		ctx QueryIndexManagerRetryContext
@@ -243,7 +243,7 @@ func (qm *QueryIndexManager) GetAllIndexes(bucketName string, opts *gocb.GetAllQ
 	return res, err
 }
 
-func (qm *QueryIndexManager) BuildDeferredIndexes(bucketName string, opts *gocb.BuildDeferredQueryIndexOptions) ([]string, error) {
+func (qm *QueryIndexManager) TryBuildDeferredIndexes(bucketName string, opts *gocb.BuildDeferredQueryIndexOptions) ([]string, error) {
 	var (
 		res []string
 		ctx QueryIndexManagerRetryContext
