@@ -276,6 +276,7 @@ func NewPail(bucket *gocb.Bucket, retries int, delay time.Duration) *Pail {
 func (p *Pail) Scope(scopeName string) *Scope {
 	scope := new(Scope)
 	scope.Scope = p.Bucket.Scope(scopeName)
+	scope.commonRetryable = p.commonRetryable
 	return scope
 }
 
@@ -303,6 +304,7 @@ type Scope struct {
 func (s *Scope) Collection(collectionName string) *Collection {
 	c := new(Collection)
 	c.Collection = s.Scope.Collection(collectionName)
+	c.commonRetryable = s.commonRetryable
 	return c
 }
 
